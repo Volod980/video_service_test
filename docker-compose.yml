@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: video_pipeline_api
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FAL_KEY=${FAL_KEY}
+      - JOBS_DIR=/tmp/video_pipeline_jobs
+      - ENV=development
+    volumes:
+      # Mount source for hot-reload in development
+      - ./video_pipeline:/app
+      # Persist job outputs across container restarts (optional for dev)
+      - video_jobs:/tmp/video_pipeline_jobs
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --log-level info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  video_jobs:
