@@ -48,14 +48,18 @@ async def lifespan(app: FastAPI):
     global _anthropic_client
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY environment variable is not set")
-
     fal_key = os.getenv("FAL_KEY")
-    if not fal_key:
-        raise RuntimeError("FAL_KEY environment variable is not set")
 
-    _anthropic_client = anthropic.AsyncAnthropic(api_key=api_key)
+    # Warn but do NOT crash — healthcheck must pass regardless of env vars.
+    # Missing keys are caught per-request in /generate with a clear 503.
+    if not api_key:
+        logger.warning("ANTHROPIC_API_KEY is not set — /generate will return 503")
+    if not fal_key:
+        logger.warning("FAL_KEY is not set — /generate will return 503")
+
+    if api_key:
+        _anthropic_client = anthropic.AsyncAnthropic(api_key=api_key)
+
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Video pipeline service started. Jobs dir: %s", JOBS_DIR)
 
@@ -145,8 +149,13 @@ async def _run_pipeline_task(
 
 @app.get("/health")
 async def health():
-    """Liveness / readiness probe."""
-    return {"status": "ok", "active_jobs": len(JOBS)}
+    """Liveness / readiness probe. Always returns 200 so Railway healthcheck passes."""
+    configured = bool(os.getenv("ANTHROPIC_API_KEY")) and bool(os.getenv("FAL_KEY"))
+    return {
+        "status": "ok",
+        "configured": configured,
+        "active_jobs": len(JOBS),
+    }
 
 
 @app.post("/generate", status_code=202)
@@ -163,6 +172,12 @@ async def generate(
 
     Returns a **job_id** you can use to poll `/status/{job_id}`.
     """
+    # Validate required API keys are present before accepting the job
+    if not os.getenv("ANTHROPIC_API_KEY") or not os.getenv("FAL_KEY"):
+        raise HTTPException(
+            status_code=503,
+            detail="Service not configured: ANTHROPIC_API_KEY and FAL_KEY must be set.",
+        )
     if not images:
         raise HTTPException(status_code=400, detail="At least one image is required.")
     if len(images) > MAX_IMAGES:
