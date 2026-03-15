@@ -10,9 +10,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build-time env var for the API URL (can be overridden at deploy time)
+# Build-time env vars
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Enable Next.js standalone output (Docker-only, NOT used on Vercel)
+ENV NEXT_STANDALONE=true
 
 RUN npm run build
 
